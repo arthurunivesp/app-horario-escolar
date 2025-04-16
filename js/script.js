@@ -1,233 +1,258 @@
 const { useState, useEffect } = React;
 
 const App = () => {
+  // Estados gerais
   const [data, setData] = useState([]);
   const [loading, setLoading] = useState(false);
-  const [searchType, setSearchType] = useState('class'); // 'class' ou 'teacher'
+  const [error, setError] = useState('');
+  const [result, setResult] = useState(null);
+
+  // Tipos de busca:
+  // 'class'   → Por Turma e Intervalo  
+  // 'teacher' → Por Professor (dia e nome, sem horário)  
+  // 'current' → Aula Atual na Turma (usa horário local)
+  const [searchType, setSearchType] = useState('class');
+
+  // Campos de busca
   const [timeInput, setTimeInput] = useState('');
   const [endTimeInput, setEndTimeInput] = useState('');
   const [selectedClass, setSelectedClass] = useState('');
   const [teacherInput, setTeacherInput] = useState('');
-  const [result, setResult] = useState(null);
-  const [error, setError] = useState('');
+  const [selectedDay, setSelectedDay] = useState('tuesday');
 
-  // Lista de turmas
+  const days = [
+    { value: 'monday', label: 'Segunda-feira' },
+    { value: 'tuesday', label: 'Terça-feira' },
+    { value: 'wednesday', label: 'Quarta-feira' },
+    { value: 'thursday', label: 'Quinta-feira' },
+    { value: 'friday', label: 'Sexta-feira' }
+  ];
+
   const classes = [
     '6º ANO TURMA A', '6º ANO TURMA B', '7º ANO TURMA A', '7º ANO TURMA B',
     '8º ANO TURMA A', '8º ANO TURMA B', '8º ANO TURMA C', '9º ANO TURMA A', '9º ANO TURMA B',
     '1º SERIE -A', '1º SERIE -B', '2º ADM', '2º SERIE -B LGH', '3º SERIE A CNT',
-    '3º SERIE B LGH', '3º VENDAS'
+    '3º SERIE B LGH', '3º SERIE VENDAS'
   ];
 
-  // Preencher horário com hora local
+  // Converte uma string de horário de "HH:MM" ou "15H50" em minutos totais
+  const parseTimeString = (input) => {
+    if (!input) return null;
+    const normalized = input.replace(/H/gi, ':').trim();
+    const parts = normalized.split(':');
+    if (parts.length !== 2) return null;
+    const hours = parseInt(parts[0].trim(), 10);
+    const minutes = parseInt(parts[1].trim(), 10);
+    if (isNaN(hours) || isNaN(minutes)) return null;
+    return hours * 60 + minutes;
+  };
+
+  // Extrai o nome do professor.
+  // Se o valor contém uma barra ("/" ou "\"), retorna a parte após ela;
+  // remove vírgulas ou pontos finais indesejados.
+  const extractTeacherName = (str) => {
+    if (!str) return "";
+    // Substitui possíveis barras invertidas por barras normais e remove vírgulas/pontos nos finais.
+    let cleaned = str.replace(/[\/\\]/g, "/").replace(/[,;.\s]+$/, "");
+    if (cleaned.includes("/")) {
+      const parts = cleaned.split("/");
+      return parts[parts.length - 1].trim();
+    }
+    return cleaned.trim();
+  };
+
+  // Normaliza uma string: remove acentos, pontuações e espaços extras, e converte para minúsculas.
+  const normalizeTeacher = (str) => {
+    if (!str) return "";
+    return str
+      .normalize("NFD")
+      .replace(/[\u0300-\u036f]/g, "")
+      .replace(/[^\w\s]/gi, "")
+      .trim()
+      .toLowerCase()
+      .replace(/\s+/g, " ");
+  };
+
+  // Preenche automaticamente o campo de horário com o horário local
   useEffect(() => {
     const now = new Date();
-    const hours = String(now.getHours()).padStart(2, '0');
-    const minutes = String(now.getMinutes()).padStart(2, '0');
-    setTimeInput(`${hours}:${minutes}`);
+    const currentTime = `${String(now.getHours()).padStart(2, "0")}:${String(now.getMinutes()).padStart(2, "0")}`;
+    setTimeInput(currentTime);
   }, []);
 
-  // Carregar CSV de terça-feira
+  // Carrega o CSV de acordo com o dia selecionado
   useEffect(() => {
-    const loadData = async () => {
+    let dayToLoad = "";
+    if (searchType === "current") {
+      const daysArr = ["sunday", "monday", "tuesday", "wednesday", "thursday", "friday", "saturday"];
+      dayToLoad = daysArr[new Date().getDay()].toLowerCase();
+    } else {
+      dayToLoad = selectedDay;
+    }
+    const loadCSV = async () => {
       setLoading(true);
-      setError('');
+      setError("");
       try {
-        const response = await fetch('data/tuesday.csv');
-        if (!response.ok) throw new Error('Falha ao carregar o arquivo');
+        const response = await fetch(`data/${dayToLoad}.csv`);
+        if (!response.ok) throw new Error("Falha ao carregar o arquivo");
         const csv = await response.text();
         Papa.parse(csv, {
           header: true,
           skipEmptyLines: true,
-          transformHeader: (header) => header.trim().replace(/^"|"$/g, ''),
-          transform: (value) => value.trim().replace(/^"|"$/g, ''),
-          complete: (results) => {
+          transformHeader: header => header.trim().replace(/^"|"$/g, ""),
+          transform: value => value.trim().replace(/^"|"$/g, ""),
+          complete: results => {
             setData(results.data);
             setLoading(false);
           },
-          error: (err) => {
+          error: err => {
             console.error(err);
-            setError('Erro ao carregar os dados do horário.');
+            setError("Erro ao carregar os dados do horário.");
             setLoading(false);
           }
         });
       } catch (err) {
         console.error(err);
-        setError('Erro ao carregar os dados do horário.');
+        setError("Erro ao carregar os dados do horário.");
         setLoading(false);
       }
     };
-    loadData();
-  }, []);
+    loadCSV();
+  }, [searchType, selectedDay]);
 
-  // Normalizar horário digitado
-  const normalizeTime = (input) => {
-    if (!input) return null;
-    const cleaned = input.replace(/[^0-9:]/g, '');
-    const match = cleaned.match(/^(\d{1,2})(?::?(\d{2}))?$/);
-    if (!match) return null;
-
-    let hours = parseInt(match[1], 10);
-    const minutes = match[2] ? parseInt(match[2], 10) : 0;
-    if (hours < 0 || hours > 23 || minutes > 59) return null;
-
-    const timeSlots = [
-      { start: '7:00', slot: '7h00 - 7h50', startMinutes: 7 * 60 },
-      { start: '7:50', slot: '7h50 - 8h40', startMinutes: 7 * 60 + 50 },
-      { start: '8:40', slot: '8h40-9h00', startMinutes: 8 * 60 + 40, isBreak: true, label: 'Café' },
-      { start: '9:00', slot: '9h00 - 9h50', startMinutes: 9 * 60 },
-      { start: '9:50', slot: '9h50 - 10h40', startMinutes: 9 * 60 + 50 },
-      { start: '10:40', slot: '10h40-11h30', startMinutes: 10 * 60 + 40 },
-      { start: '11:30', slot: '11h30-12h30', startMinutes: 11 * 60 + 30, isBreak: true, label: 'Almoço' },
-      { start: '12:30', slot: '12h30-13h20', startMinutes: 12 * 60 + 30 },
-      { start: '13:20', slot: '13h20-14h10', startMinutes: 13 * 60 + 20 },
-      { start: '14:10', slot: '14h10-14h20', startMinutes: 14 * 60 + 10, isBreak: true, label: 'Lanche' },
-      { start: '14:20', slot: '14h20-15h10', startMinutes: 14 * 60 + 20 },
-      { start: '15:10', slot: '15h10-16h00', startMinutes: 15 * 60 + 10 },
-      { start: '8:40', slot: '8h40-9h30', startMinutes: 8 * 60 + 40 },
-      { start: '9:30', slot: '9h30-10h20', startMinutes: 9 * 60 + 30 },
-      { start: '10:20', slot: '10h20-10h50', startMinutes: 10 * 60 + 20, isBreak: true, label: 'Café' },
-      { start: '10:50', slot: '10h50 - 11h40', startMinutes: 10 * 60 + 50 },
-      { start: '11:40', slot: '11h40-12h30', startMinutes: 11 * 60 + 40 },
-      { start: '12:30', slot: '12h30-13h30', startMinutes: 12 * 60 + 30, isBreak: true, label: 'Almoço' },
-      { start: '13:30', slot: '13h30 - 14h20', startMinutes: 13 * 60 + 30 },
-      { start: '14:20', slot: '14h20-15h10', startMinutes: 14 * 60 + 20 },
-      { start: '15:10', slot: '15h10-15h50', startMinutes: 15 * 60 + 10 },
-      { start: '15:50', slot: '15H50-16H00', startMinutes: 15 * 60 + 50, isBreak: true, label: 'Lanche' }
-    ];
-
-    const inputMinutes = hours * 60 + minutes;
-    for (const slot of timeSlots) {
-      const slotStartMinutes = slot.startMinutes;
-      const nextSlot = timeSlots.find(s => s.startMinutes > slot.startMinutes) || { startMinutes: 16 * 60 };
-      const slotEndMinutes = nextSlot.startMinutes;
-
-      if (inputMinutes >= slotStartMinutes && inputMinutes < slotEndMinutes) {
-        return slot;
-      }
-    }
-    return null;
-  };
-
-  // Converter horário para minutos totais
-  const timeToMinutes = (input) => {
-    const cleaned = input.replace(/[^0-9:]/g, '');
-    const match = cleaned.match(/^(\d{1,2})(?::?(\d{2}))?$/);
-    if (!match) return null;
-    const hours = parseInt(match[1], 10);
-    const minutes = match[2] ? parseInt(match[2], 10) : 0;
-    return hours * 60 + minutes;
-  };
-
-  // Lidar com o envio do formulário
   const handleSubmit = (e) => {
     e.preventDefault();
     setResult(null);
-    setError('');
+    setError("");
 
-    if (searchType === 'class') {
-      if (!timeInput || !endTimeInput || !selectedClass) {
-        setError('Por favor, preencha o horário inicial, final e a turma.');
+    if (searchType === "class") {
+      if (!timeInput || !endTimeInput || !selectedClass || !selectedDay) {
+        setError("Por favor, preencha o dia da semana, horário inicial, final e a turma.");
         return;
       }
-
-      const startSlot = normalizeTime(timeInput);
-      const endSlot = normalizeTime(endTimeInput);
-
-      if (!startSlot || !endSlot) {
-        setError('Formato de horário inválido. Use HH:MM (ex.: 9:30).');
+      const startInput = parseTimeString(timeInput);
+      const endInput = parseTimeString(endTimeInput);
+      if (startInput === null || endInput === null) {
+        setError("Formato de horário inválido. Use HH:MM (ex.: 09:30).");
         return;
       }
-
-      const startMinutes = timeToMinutes(timeInput);
-      const endMinutes = timeToMinutes(endTimeInput);
-
-      if (startMinutes >= endMinutes) {
-        setError('O horário final deve ser após o inicial.');
+      if (startInput >= endInput) {
+        setError("O horário final deve ser após o horário inicial.");
         return;
       }
-
-      const filteredEntries = data
-        .filter(row => row['class'] === selectedClass)
-        .filter(row => {
-          const slot = timeSlots.find(s => s.slot === row['time']);
-          if (!slot) return false;
-          const slotMinutes = slot.startMinutes;
-          return slotMinutes >= startSlot.startMinutes && slotMinutes <= endSlot.startMinutes;
-        })
-        .sort((a, b) => {
-          const slotA = timeSlots.find(s => s.slot === a['time']).startMinutes;
-          const slotB = timeSlots.find(s => s.slot === b['time']).startMinutes;
-          return slotA - slotB;
-        });
+      const filteredEntries = data.filter(row => {
+        if (row["class"] !== selectedClass) return false;
+        const lessonStart = parseTimeString(row["time_start"]);
+        const lessonEnd = parseTimeString(row["time_end"]);
+        if (lessonStart === null || lessonEnd === null) return false;
+        return lessonStart < endInput && lessonEnd > startInput;
+      }).sort((a, b) => parseTimeString(a["time_start"]) - parseTimeString(b["time_start"]));
 
       if (filteredEntries.length > 0) {
-        setResult({ type: 'classList', entries: filteredEntries });
+        setResult({ type: "classList", entries: filteredEntries });
       } else {
-        setResult({ type: 'none', message: 'Nenhuma aula encontrada no intervalo.' });
+        setResult({ type: "none", message: "Nenhuma aula encontrada no intervalo para essa turma." });
       }
-    } else if (searchType === 'teacher') {
-      if (!timeInput || !teacherInput) {
-        setError('Por favor, preencha o horário e o nome do professor.');
+    } else if (searchType === "teacher") {
+      if (!teacherInput || !selectedDay) {
+        setError("Por favor, preencha o dia da semana e o nome do professor.");
         return;
       }
-
-      const timeSlot = normalizeTime(timeInput);
-      if (!timeSlot) {
-        setError('Formato de horário inválido. Use HH:MM (ex.: 9:30).');
-        return;
-      }
-
-      if (timeSlot.isBreak) {
-        setResult({ type: 'break', message: `Pausa: ${timeSlot.label}` });
-        return;
-      }
-
-      const filteredEntries = data.filter(row =>
-        row['time'] === timeSlot.slot &&
-        row['teacher'].toLowerCase().includes(teacherInput.toLowerCase())
-      );
+      const teacherQuery = normalizeTeacher(teacherInput);
+      const filteredEntries = data.filter(row => {
+        const teacherFromCSV = normalizeTeacher(extractTeacherName(row.teacher));
+        return row["teacher"] && teacherFromCSV.includes(teacherQuery);
+      }).sort((a, b) => parseTimeString(a["time_start"]) - parseTimeString(b["time_start"]));
 
       if (filteredEntries.length > 0) {
-        setResult({ type: 'teacherList', entries: filteredEntries });
+        setResult({ type: "teacherList", entries: filteredEntries });
       } else {
-        setResult({ type: 'none', message: 'Nenhum professor encontrado neste horário.' });
+        setResult({ type: "none", message: "Nenhuma aula encontrada para esse professor no dia selecionado." });
+      }
+    } else if (searchType === "current") {
+      if (!selectedClass) {
+        setError("Selecione a turma.");
+        return;
+      }
+      const now = new Date();
+      const nowMinutes = now.getHours() * 60 + now.getMinutes();
+      if (now.getHours() < 7 || now.getHours() >= 16) {
+        setResult({ type: "none", message: "As aulas começam às 7h da manhã e terminam às 16h." });
+        return;
+      }
+      const currentEntry = data.find(row => {
+        if (row["class"] !== selectedClass) return false;
+        const lessonStart = parseTimeString(row["time_start"]);
+        const lessonEnd = parseTimeString(row["time_end"]);
+        if (lessonStart === null || lessonEnd === null) return false;
+        return nowMinutes >= lessonStart && nowMinutes < lessonEnd;
+      });
+      if (currentEntry) {
+        setResult({ type: "current", entry: currentEntry });
+      } else {
+        setResult({ type: "none", message: "Nenhuma aula ocorrendo agora para essa turma." });
       }
     }
   };
 
   return (
     <div className="container">
-      <h1>Consulta de Horários Escolares - Terça-feira</h1>
+      <h1>Consulta de Horários Escolares</h1>
       <div className="form-group">
         <label>Tipo de Busca</label>
         <div className="radio-group">
           <label>
-            <input
+            <input 
               type="radio"
               value="class"
-              checked={searchType === 'class'}
-              onChange={() => setSearchType('class')}
+              checked={searchType === "class"}
+              onChange={() => setSearchType("class")}
             />
             Por Turma e Intervalo
           </label>
           <label>
-            <input
+            <input 
               type="radio"
               value="teacher"
-              checked={searchType === 'teacher'}
-              onChange={() => setSearchType('teacher')}
+              checked={searchType === "teacher"}
+              onChange={() => setSearchType("teacher")}
             />
-            Por Professor e Horário
+            Por Professor
+          </label>
+          <label>
+            <input 
+              type="radio"
+              value="current"
+              checked={searchType === "current"}
+              onChange={() => setSearchType("current")}
+            />
+            Aula Atual na Turma
           </label>
         </div>
       </div>
+
+      {(searchType === "class" || searchType === "teacher") && (
+        <div className="form-group">
+          <label>Dia da Semana</label>
+          <select 
+            value={selectedDay}
+            onChange={(e) => setSelectedDay(e.target.value)}
+            required
+          >
+            <option value="">Selecione um dia</option>
+            {days.map((day) => (
+              <option key={day.value} value={day.value}>{day.label}</option>
+            ))}
+          </select>
+        </div>
+      )}
+
       <form onSubmit={handleSubmit}>
-        {searchType === 'class' ? (
+        {searchType === "class" ? (
           <>
             <div className="form-group">
-              <label>Horário Inicial (ex.: 7:00)</label>
-              <input
+              <label>Horário Inicial (ex.: 07:00)</label>
+              <input 
                 type="time"
                 value={timeInput}
                 onChange={(e) => setTimeInput(e.target.value)}
@@ -235,8 +260,8 @@ const App = () => {
               />
             </div>
             <div className="form-group">
-              <label>Horário Final (ex.: 12:00)</label>
-              <input
+              <label>Horário Final (ex.: 16:00)</label>
+              <input 
                 type="time"
                 value={endTimeInput}
                 onChange={(e) => setEndTimeInput(e.target.value)}
@@ -245,32 +270,23 @@ const App = () => {
             </div>
             <div className="form-group">
               <label>Turma</label>
-              <select
+              <select 
                 value={selectedClass}
                 onChange={(e) => setSelectedClass(e.target.value)}
                 required
               >
                 <option value="">Selecione uma turma</option>
-                {classes.map(cls => (
+                {classes.map((cls) => (
                   <option key={cls} value={cls}>{cls}</option>
                 ))}
               </select>
             </div>
           </>
-        ) : (
+        ) : searchType === "teacher" ? (
           <>
             <div className="form-group">
-              <label>Horário (ex.: 9:30)</label>
-              <input
-                type="time"
-                value={timeInput}
-                onChange={(e) => setTimeInput(e.target.value)}
-                required
-              />
-            </div>
-            <div className="form-group">
               <label>Nome do Professor</label>
-              <input
+              <input 
                 type="text"
                 value={teacherInput}
                 onChange={(e) => setTeacherInput(e.target.value)}
@@ -279,44 +295,68 @@ const App = () => {
               />
             </div>
           </>
+        ) : (
+          <div className="form-group">
+            <label>Turma</label>
+            <select 
+              value={selectedClass}
+              onChange={(e) => setSelectedClass(e.target.value)}
+              required
+            >
+              <option value="">Selecione uma turma</option>
+              {classes.map((cls) => (
+                <option key={cls} value={cls}>{cls}</option>
+              ))}
+            </select>
+          </div>
         )}
         <button type="submit" disabled={loading}>
-          {loading ? 'Carregando...' : 'Consultar'}
+          {loading ? "Carregando..." : "Consultar"}
         </button>
       </form>
+
       {error && (
         <div className="error">
           {error}
         </div>
       )}
+
       {result && (
         <div className="result">
-          {result.type === 'classList' ? (
+          {result.type === "classList" ? (
             <div>
               <h3>Aulas no intervalo:</h3>
               <ul>
                 {result.entries.map((entry, index) => (
                   <li key={index}>
-                    {entry.time}: {entry.subject}{entry.teacher ? ` / ${entry.teacher}` : ''}
+                    {entry.time_start} - {entry.time_end}: {entry.subject} { entry.teacher ? ` / ${entry.teacher}` : '' }
                   </li>
                 ))}
               </ul>
             </div>
-          ) : result.type === 'teacherList' ? (
+          ) : result.type === "teacherList" ? (
             <div>
-              <h3>Aulas do professor:</h3>
+              <h3>Aulas do Professor:</h3>
               <ul>
                 {result.entries.map((entry, index) => (
                   <li key={index}>
-                    {entry.time}: {entry.class}, {entry.subject}
+                    {entry.time_start} - {entry.time_end}: {entry.class}, {entry.subject}
                   </li>
                 ))}
               </ul>
             </div>
-          ) : result.type === 'break' ? (
-            <p>{result.message}</p>
+          ) : result.type === "current" ? (
+            <div>
+              <h3>Aula Atual:</h3>
+              <p>
+                {result.entry.time_start} - {result.entry.time_end}: {result.entry.subject} / {result.entry.teacher}
+              </p>
+            </div>
           ) : (
-            <p>{result.message}</p>
+            <div>
+              <h3>Aviso:</h3>
+              <p>{result.message}</p>
+            </div>
           )}
         </div>
       )}
@@ -324,30 +364,21 @@ const App = () => {
   );
 };
 
-const timeSlots = [
-  { start: '7:00', slot: '7h00 - 7h50', startMinutes: 7 * 60 },
-  { start: '7:50', slot: '7h50 - 8h40', startMinutes: 7 * 60 + 50 },
-  { start: '8:40', slot: '8h40-9h00', startMinutes: 8 * 60 + 40, isBreak: true, label: 'Café' },
-  { start: '9:00', slot: '9h00 - 9h50', startMinutes: 9 * 60 },
-  { start: '9:50', slot: '9h50 - 10h40', startMinutes: 9 * 60 + 50 },
-  { start: '10:40', slot: '10h40-11h30', startMinutes: 10 * 60 + 40 },
-  { start: '11:30', slot: '11h30-12h30', startMinutes: 11 * 60 + 30, isBreak: true, label: 'Almoço' },
-  { start: '12:30', slot: '12h30-13h20', startMinutes: 12 * 60 + 30 },
-  { start: '13:20', slot: '13h20-14h10', startMinutes: 13 * 60 + 20 },
-  { start: '14:10', slot: '14h10-14h20', startMinutes: 14 * 60 + 10, isBreak: true, label: 'Lanche' },
-  { start: '14:20', slot: '14h20-15h10', startMinutes: 14 * 60 + 20 },
-  { start: '15:10', slot: '15h10-16h00', startMinutes: 15 * 60 + 10 },
-  { start: '8:40', slot: '8h40-9h30', startMinutes: 8 * 60 + 40 },
-  { start: '9:30', slot: '9h30-10h20', startMinutes: 9 * 60 + 30 },
-  { start: '10:20', slot: '10h20-10h50', startMinutes: 10 * 60 + 20, isBreak: true, label: 'Café' },
-  { start: '10:50', slot: '10h50 - 11h40', startMinutes: 10 * 60 + 50 },
-  { start: '11:40', slot: '11h40-12h30', startMinutes: 11 * 60 + 40 },
-  { start: '12:30', slot: '12h30-13h30', startMinutes: 12 * 60 + 30, isBreak: true, label: 'Almoço' },
-  { start: '13:30', slot: '13h30 - 14h20', startMinutes: 13 * 60 + 30 },
-  { start: '14:20', slot: '14h20-15h10', startMinutes: 14 * 60 + 20 },
-  { start: '15:10', slot: '15h10-15h50', startMinutes: 15 * 60 + 10 },
-  { start: '15:50', slot: '15H50-16H00', startMinutes: 15 * 60 + 50, isBreak: true, label: 'Lanche' }
-];
-
-const root = ReactDOM.createRoot(document.getElementById('root'));
+const root = ReactDOM.createRoot(document.getElementById("root"));
 root.render(<App />);
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
