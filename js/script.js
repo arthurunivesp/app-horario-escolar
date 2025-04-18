@@ -177,7 +177,7 @@ const App = () => {
       const now = new Date();
       const nowMinutes = now.getHours() * 60 + now.getMinutes();
       if (now.getHours() < 7 || now.getHours() >= 16) {
-        setResult({ type: "none", message: "As aulas começam às 7h da manhã e terminam às 16h." });
+        setResult({ type: "none", message: "Horário de funcionamento: As aulas têm início às 7h e término às 16h, de segunda a sexta-feira. 🕒." });
         return;
       }
       const currentEntry = data.find(row => {
